@@ -1,8 +1,3 @@
-"""
-modelling.py  (versi MLProject – Workflow CI)
-MLflow tracking ke DagsHub: FathirAfif/Workflow-CI
-"""
-
 import argparse
 import os
 import json
@@ -21,15 +16,6 @@ from sklearn.metrics import (
     f1_score, roc_auc_score, confusion_matrix,
     classification_report, roc_curve
 )
-
-
-def setup_mlflow():
-    # Pakai environment variable untuk auth, bukan dagshub.init()
-    mlflow.set_tracking_uri(os.environ.get(
-        "MLFLOW_TRACKING_URI",
-        "https://dagshub.com/FathirAfif/Workflow-CI.mlflow"
-    ))
-    mlflow.set_experiment("diabetes-prediction")
 
 
 def load_data(data_dir):
@@ -85,49 +71,50 @@ def save_classification_report(y_test, y_pred):
 
 
 def main(args):
-    setup_mlflow()
+    # Tidak perlu set tracking URI atau start_run manual
+    # MLflow Project sudah handle ini via environment variable
     X_train, X_test, y_train, y_test = load_data(args.data_dir)
 
-    with mlflow.start_run():
-        mlflow.log_param("n_estimators",  args.n_estimators)
-        mlflow.log_param("max_depth",     args.max_depth)
-        mlflow.log_param("random_state",  args.random_state)
+    # Langsung log tanpa with mlflow.start_run()
+    mlflow.log_param("n_estimators",  args.n_estimators)
+    mlflow.log_param("max_depth",     args.max_depth)
+    mlflow.log_param("random_state",  args.random_state)
 
-        model = RandomForestClassifier(
-            n_estimators=args.n_estimators,
-            max_depth=args.max_depth if args.max_depth > 0 else None,
-            random_state=args.random_state
-        )
-        model.fit(X_train, y_train)
+    model = RandomForestClassifier(
+        n_estimators=args.n_estimators,
+        max_depth=args.max_depth if args.max_depth > 0 else None,
+        random_state=args.random_state
+    )
+    model.fit(X_train, y_train)
 
-        y_pred = model.predict(X_test)
-        y_prob = model.predict_proba(X_test)[:, 1]
+    y_pred = model.predict(X_test)
+    y_prob = model.predict_proba(X_test)[:, 1]
 
-        metrics = {
-            "accuracy" : accuracy_score(y_test, y_pred),
-            "precision": precision_score(y_test, y_pred),
-            "recall"   : recall_score(y_test, y_pred),
-            "f1_score" : f1_score(y_test, y_pred),
-            "roc_auc"  : roc_auc_score(y_test, y_prob),
-        }
-        mlflow.log_metrics(metrics)
+    metrics = {
+        "accuracy" : accuracy_score(y_test, y_pred),
+        "precision": precision_score(y_test, y_pred),
+        "recall"   : recall_score(y_test, y_pred),
+        "f1_score" : f1_score(y_test, y_pred),
+        "roc_auc"  : roc_auc_score(y_test, y_prob),
+    }
+    mlflow.log_metrics(metrics)
 
-        for k, v in metrics.items():
-            print(f"  {k}: {v:.4f}")
+    for k, v in metrics.items():
+        print(f"  {k}: {v:.4f}")
 
-        mlflow.sklearn.log_model(model, artifact_path="model")
+    mlflow.sklearn.log_model(model, artifact_path="model")
 
-        cm_path     = save_confusion_matrix(y_test, y_pred)
-        roc_path    = save_roc_curve(y_test, y_prob)
-        report_path = save_classification_report(y_test, y_pred)
+    cm_path     = save_confusion_matrix(y_test, y_pred)
+    roc_path    = save_roc_curve(y_test, y_prob)
+    report_path = save_classification_report(y_test, y_pred)
 
-        mlflow.log_artifact(cm_path)
-        mlflow.log_artifact(roc_path)
-        mlflow.log_artifact(report_path)
+    mlflow.log_artifact(cm_path)
+    mlflow.log_artifact(roc_path)
+    mlflow.log_artifact(report_path)
 
-        mlflow.set_tag("model", "RandomForestClassifier")
-        mlflow.set_tag("dataset", "Pima Indians Diabetes")
-        print("[MLflow] Run selesai → tersimpan di DagsHub")
+    mlflow.set_tag("model", "RandomForestClassifier")
+    mlflow.set_tag("dataset", "Pima Indians Diabetes")
+    print("[MLflow] Run selesai!")
 
 
 if __name__ == "__main__":
