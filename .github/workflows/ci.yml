@@ -29,9 +29,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install mlflow==2.19.0 scikit-learn pandas numpy \
-                      matplotlib seaborn \
-                      google-auth google-auth-oauthlib \
-                      google-auth-httplib2 google-api-python-client
+                      matplotlib seaborn
 
       - name: Set MLflow Tracking URI
         run: |
@@ -55,7 +53,7 @@ jobs:
           MLFLOW_TRACKING_PASSWORD: ${{ secrets.DAGSHUB_TOKEN }}
         run: |
           RUN_ID=$(python3 -c "
-          import mlflow, os
+          import mlflow
           mlflow.set_tracking_uri('https://dagshub.com/FathirAfif/Workflow-CI.mlflow')
           client = mlflow.tracking.MlflowClient()
           exps = client.search_experiments()
@@ -70,44 +68,29 @@ jobs:
           echo "Latest Run ID: $RUN_ID"
 
       - name: Install Python dependencies
-        run: pip install google-auth google-api-python-client
+        run: pip install mlflow==2.19.0
 
       - name: Upload to Google Drive
         env:
-          GDRIVE_CREDENTIALS: ${{ secrets.GDRIVE_CREDENTIALS }}
-          GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
           MLFLOW_TRACKING_URI: https://dagshub.com/FathirAfif/Workflow-CI.mlflow
           MLFLOW_TRACKING_USERNAME: FathirAfif
           MLFLOW_TRACKING_PASSWORD: ${{ secrets.DAGSHUB_TOKEN }}
         run: |
+          mkdir -p artifacts
           python3 -c "
-          import os, json, mlflow
-          from googleapiclient.discovery import build
-          from googleapiclient.http import MediaFileUpload
-          from google.oauth2 import service_account
-
+          import mlflow, os, shutil
           mlflow.set_tracking_uri('https://dagshub.com/FathirAfif/Workflow-CI.mlflow')
-
-          creds_info = json.loads(os.environ['GDRIVE_CREDENTIALS'])
-          creds = service_account.Credentials.from_service_account_info(
-              creds_info, scopes=['https://www.googleapis.com/auth/drive']
-          )
-          service = build('drive', 'v3', credentials=creds)
-
-          run_id    = os.environ['MLFLOW_RUN_ID']
-          folder_id = os.environ.get('GDRIVE_FOLDER_ID', 'root')
-
+          run_id = os.environ['MLFLOW_RUN_ID']
           local_path = mlflow.artifacts.download_artifacts(run_id=run_id)
-          print(f'Artifacts path: {local_path}')
-
-          for root, dirs, files in os.walk(local_path):
-              for fname in files:
-                  fpath = os.path.join(root, fname)
-                  media = MediaFileUpload(fpath, resumable=True)
-                  file_meta = {'name': fname, 'parents': [folder_id]}
-                  uploaded = service.files().create(body=file_meta, media_body=media, fields='id').execute()
-                  print(f'Uploaded: {fname}')
+          print(f'Artifacts downloaded to: {local_path}')
+          shutil.copytree(local_path, 'artifacts', dirs_exist_ok=True)
+          print('Artifacts copied to artifacts/ folder')
           "
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add artifacts/
+          git diff --staged --quiet || git commit -m "ci: upload artifacts run ${{ env.MLFLOW_RUN_ID }} [skip ci]"
+          git push
 
       - name: Build Docker Model
         env:
