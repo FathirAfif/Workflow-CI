@@ -8,6 +8,9 @@ on:
 env:
   DOCKER_IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/diabetes-prediction
 
+permissions:
+  contents: write
+  
 jobs:
   train-and-deploy:
     runs-on: ubuntu-latest
