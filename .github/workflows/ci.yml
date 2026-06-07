@@ -1,0 +1,136 @@
+name: MLflow CI Pipeline - Diabetes Prediction
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  DOCKER_IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/diabetes-prediction
+
+jobs:
+  train-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Run actions/checkout@v3
+        uses: actions/checkout@v3
+
+      - name: Set up Python 3.12.7
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12.7'
+
+      - name: Check Env
+        run: |
+          python --version
+          pip --version
+
+      - name: Install dependencies
+        run: |
+          pip install mlflow==2.19.0 scikit-learn pandas numpy \
+                      matplotlib seaborn \
+                      google-auth google-auth-oauthlib \
+                      google-auth-httplib2 google-api-python-client
+
+      - name: Set MLflow Tracking URI
+        run: |
+          echo "MLFLOW_TRACKING_URI=https://dagshub.com/FathirAfif/Workflow-CI.mlflow" >> $GITHUB_ENV
+          echo "MLFLOW_TRACKING_USERNAME=FathirAfif" >> $GITHUB_ENV
+          echo "MLFLOW_TRACKING_PASSWORD=${{ secrets.DAGSHUB_TOKEN }}" >> $GITHUB_ENV
+          mlflow --version
+
+      - name: Run mlflow project
+        env:
+          MLFLOW_TRACKING_URI: https://dagshub.com/FathirAfif/Workflow-CI.mlflow
+          MLFLOW_TRACKING_USERNAME: FathirAfif
+          MLFLOW_TRACKING_PASSWORD: ${{ secrets.DAGSHUB_TOKEN }}
+        run: |
+          mlflow run MLProject/ --env-manager=local
+
+      - name: Get latest MLflow run_id
+        env:
+          MLFLOW_TRACKING_URI: https://dagshub.com/FathirAfif/Workflow-CI.mlflow
+          MLFLOW_TRACKING_USERNAME: FathirAfif
+          MLFLOW_TRACKING_PASSWORD: ${{ secrets.DAGSHUB_TOKEN }}
+        run: |
+          RUN_ID=$(python3 -c "
+          import mlflow, os
+          mlflow.set_tracking_uri('https://dagshub.com/FathirAfif/Workflow-CI.mlflow')
+          client = mlflow.tracking.MlflowClient()
+          exps = client.search_experiments()
+          all_runs = []
+          for exp in exps:
+              runs = client.search_runs(exp.experiment_id, order_by=['start_time DESC'], max_results=1)
+              all_runs.extend(runs)
+          all_runs.sort(key=lambda r: r.info.start_time, reverse=True)
+          print(all_runs[0].info.run_id)
+          ")
+          echo "MLFLOW_RUN_ID=$RUN_ID" >> $GITHUB_ENV
+          echo "Latest Run ID: $RUN_ID"
+
+      - name: Install Python dependencies
+        run: pip install google-auth google-api-python-client
+
+      - name: Upload to Google Drive
+        env:
+          GDRIVE_CREDENTIALS: ${{ secrets.GDRIVE_CREDENTIALS }}
+          GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
+          MLFLOW_TRACKING_URI: https://dagshub.com/FathirAfif/Workflow-CI.mlflow
+          MLFLOW_TRACKING_USERNAME: FathirAfif
+          MLFLOW_TRACKING_PASSWORD: ${{ secrets.DAGSHUB_TOKEN }}
+        run: |
+          python3 -c "
+          import os, json, mlflow
+          from googleapiclient.discovery import build
+          from googleapiclient.http import MediaFileUpload
+          from google.oauth2 import service_account
+
+          mlflow.set_tracking_uri('https://dagshub.com/FathirAfif/Workflow-CI.mlflow')
+
+          creds_info = json.loads(os.environ['GDRIVE_CREDENTIALS'])
+          creds = service_account.Credentials.from_service_account_info(
+              creds_info, scopes=['https://www.googleapis.com/auth/drive']
+          )
+          service = build('drive', 'v3', credentials=creds)
+
+          run_id    = os.environ['MLFLOW_RUN_ID']
+          folder_id = os.environ.get('GDRIVE_FOLDER_ID', 'root')
+
+          local_path = mlflow.artifacts.download_artifacts(run_id=run_id)
+          print(f'Artifacts path: {local_path}')
+
+          for root, dirs, files in os.walk(local_path):
+              for fname in files:
+                  fpath = os.path.join(root, fname)
+                  media = MediaFileUpload(fpath, resumable=True)
+                  file_meta = {'name': fname, 'parents': [folder_id]}
+                  uploaded = service.files().create(body=file_meta, media_body=media, fields='id').execute()
+                  print(f'Uploaded: {fname}')
+          "
+
+      - name: Build Docker Model
+        env:
+          MLFLOW_TRACKING_URI: https://dagshub.com/FathirAfif/Workflow-CI.mlflow
+          MLFLOW_TRACKING_USERNAME: FathirAfif
+          MLFLOW_TRACKING_PASSWORD: ${{ secrets.DAGSHUB_TOKEN }}
+        run: |
+          mlflow models build-docker \
+            --model-uri "runs:/${{ env.MLFLOW_RUN_ID }}/model" \
+            --name ${{ env.DOCKER_IMAGE_NAME }}
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Tag Docker Image
+        run: |
+          docker tag ${{ env.DOCKER_IMAGE_NAME }}:latest \
+            ${{ env.DOCKER_IMAGE_NAME }}:${{ github.sha }}
+
+      - name: Push Docker Image
+        run: |
+          docker push ${{ env.DOCKER_IMAGE_NAME }}:latest
+          docker push ${{ env.DOCKER_IMAGE_NAME }}:${{ github.sha }}

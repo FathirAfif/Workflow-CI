@@ -1,0 +1,12 @@
+Docker Hub Image:
+https://hub.docker.com/r/<dockerhub_username>/diabetes-prediction
+
+Ganti <dockerhub_username> dengan username Docker Hub Anda.
+Image ini dibangun secara otomatis oleh GitHub Actions CI workflow
+setiap kali ada push ke branch main.
+
+Cara pull image:
+    docker pull <dockerhub_username>/diabetes-prediction:latest
+
+Cara run inference:
+    docker run -p 8080:8080 <dockerhub_username>/diabetes-prediction:latest
