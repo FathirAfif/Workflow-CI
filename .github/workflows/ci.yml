@@ -101,7 +101,7 @@ jobs:
           MLFLOW_TRACKING_USERNAME: FathirAfif
           MLFLOW_TRACKING_PASSWORD: ${{ secrets.DAGSHUB_TOKEN }}
         run: |
-          mlflow models build-docker \
+          mlflow models build-docker --env-manager local \
             --model-uri "runs:/${{ env.MLFLOW_RUN_ID }}/model" \
             --name ${{ env.DOCKER_IMAGE_NAME }}
 
@@ -120,4 +120,3 @@ jobs:
         run: |
           docker push ${{ env.DOCKER_IMAGE_NAME }}:latest
           docker push ${{ env.DOCKER_IMAGE_NAME }}:${{ github.sha }}
-          
