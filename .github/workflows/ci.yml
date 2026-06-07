@@ -10,7 +10,7 @@ env:
 
 permissions:
   contents: write
-  
+
 jobs:
   train-and-deploy:
     runs-on: ubuntu-latest
@@ -120,3 +120,4 @@ jobs:
         run: |
           docker push ${{ env.DOCKER_IMAGE_NAME }}:latest
           docker push ${{ env.DOCKER_IMAGE_NAME }}:${{ github.sha }}
+          
